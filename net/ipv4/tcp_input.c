@@ -5980,6 +5980,12 @@ reset_and_undo:
  *	address independent.
  */
 
+
+/*
+ * 三次握手：之 第三次逻辑
+ * 通常,第三次握手走到这里 子控制块sk的状态为 TCP_SYN_RECV.
+ * 通常，正常逻辑，从该函数返回，子状态为TCP_ESTABLISHED
+ * **/
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -6008,6 +6014,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			 */
 			rcu_read_lock();
 			local_bh_disable();
+			//tcp_v4_conn_request
 			acceptable = icsk->icsk_af_ops->conn_request(sk, skb) >= 0;
 			local_bh_enable();
 			rcu_read_unlock();
@@ -6063,9 +6070,12 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		tcp_send_challenge_ack(sk, skb);
 		goto discard;
 	}
+
 	switch (sk->sk_state) {
 	case TCP_SYN_RECV:
 		tp->delivered++; /* SYN-ACK delivery isn't tracked in tcp_ack */
+
+		//synack rtt测量
 		if (!tp->srtt_us)
 			tcp_synack_rtt_meas(sk, req);
 
@@ -6073,6 +6083,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		 * so release it.
 		 */
 		if (req) {
+		    // faskopen的处理，先略过
 			inet_csk(sk)->icsk_retransmits = 0;
 			reqsk_fastopen_remove(sk, req, false);
 			/* Re-arm the timer because data may have been sent out.
@@ -6085,11 +6096,21 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			 */
 			tcp_rearm_rto(sk);
 		} else {
+		    // 查路由, 初始化cc, 窗口, buffer大小
 			tcp_init_transfer(sk, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB);
+
 			tp->copied_seq = tp->rcv_nxt;
 		}
 		smp_mb();
+
+		//!!! 控制块状态更新为: TCP_ESTABLISHED
 		tcp_set_state(sk, TCP_ESTABLISHED);
+
+		/**
+		 * 唤醒Epoll
+		 * sock_def_wakeup( )
+		 * src/linux-stable/net/core/sock.c +2865
+		 * */
 		sk->sk_state_change(sk);
 
 		/* Note, that this wakeup is only for marginal crossed SYN case.
@@ -6418,6 +6439,13 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 		goto drop;
 	}
 
+	// .
+	/*
+	 * 1. 创建一个request_sock
+	 * 2. sock状态为TCP_NEW_SYN_RECV(起点）
+	 * 3. 全局hashinfo(ehash...)已设置在req中
+	 * 4. 后面会将req直接加入ehash
+	 * */
 	req = inet_reqsk_alloc(rsk_ops, sk, !want_cookie);
 	if (!req)
 		goto drop;
@@ -6438,12 +6466,15 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 		tmp_opt.smc_ok = 0;
 
 	tmp_opt.tstamp_ok = tmp_opt.saw_tstamp;
+	//使用peer的信息对自己做初始化
 	tcp_openreq_init(req, &tmp_opt, skb, sk);
 	inet_rsk(req)->no_srccheck = inet_sk(sk)->transparent;
 
 	/* Note: tcp_v6_init_req() might override ir_iif for link locals */
 	inet_rsk(req)->ir_iif = inet_request_bound_dev_if(sk, skb);
 
+	//tcp_v4_init_req
+	//设置新sock的 源地址、目的地址, ipv4选项
 	af_ops->init_req(req, sk, skb);
 
 	if (security_inet_conn_request(sk, skb, req))
@@ -6474,9 +6505,11 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 			goto drop_and_release;
 		}
 
+		// tcp_v4_init_seq 初始化序列号
 		isn = af_ops->init_seq(skb);
 	}
 
+	// enc: Explicit Congestion Notification,显式拥塞通告相关
 	tcp_ecn_create_request(req, skb, sk, dst);
 
 	if (want_cookie) {
@@ -6486,14 +6519,20 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 			inet_rsk(req)->ecn_ok = 0;
 	}
 
+	//初始化 发送序列号
 	tcp_rsk(req)->snt_isn = isn;
 	tcp_rsk(req)->txhash = net_tx_rndhash();
+
+	//初始化 tcp窗口
 	tcp_openreq_init_rwin(req, sk, dst);
+
 	sk_rx_queue_set(req_to_sk(req), skb);
+
 	if (!want_cookie) {
 		tcp_reqsk_record_syn(sk, req, skb);
 		fastopen_sk = tcp_try_fastopen(sk, skb, req, &foc, dst);
 	}
+
 	if (fastopen_sk) {
 		af_ops->send_synack(fastopen_sk, dst, &fl, req,
 				    &foc, TCP_SYNACK_FASTOPEN);
@@ -6511,8 +6550,11 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 	} else {
 		tcp_rsk(req)->tfo_listener = false;
 		if (!want_cookie)
+            //新sock加入ehash
 			inet_csk_reqsk_queue_hash_add(sk, req,
 				tcp_timeout_init((struct sock *)req));
+
+		//发第二次握手包
 		af_ops->send_synack(sk, dst, &fl, req, &foc,
 				    !want_cookie ? TCP_SYNACK_NORMAL :
 						   TCP_SYNACK_COOKIE);
@@ -6521,6 +6563,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 			return 0;
 		}
 	}
+
 	reqsk_put(req);
 	return 0;
 

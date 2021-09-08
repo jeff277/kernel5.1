@@ -1657,6 +1657,8 @@ int __sys_listen(int fd, int backlog)
 			backlog = somaxconn;
 
 		err = security_socket_listen(sock, backlog);
+		// struct proto_ops inet_stream_ops
+		// inet_listen ()
 		if (!err)
 			err = sock->ops->listen(sock, backlog);
 

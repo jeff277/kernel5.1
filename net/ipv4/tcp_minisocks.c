@@ -454,7 +454,9 @@ struct sock *tcp_create_openreq_child(const struct sock *sk,
 				      struct request_sock *req,
 				      struct sk_buff *skb)
 {
+    //生成一个新的tcp控制块(子sock的tcp sock)
 	struct sock *newsk = inet_csk_clone_lock(sk, req, GFP_ATOMIC);
+
 	const struct inet_request_sock *ireq = inet_rsk(req);
 	struct tcp_request_sock *treq = tcp_rsk(req);
 	struct inet_connection_sock *newicsk;
@@ -552,6 +554,7 @@ EXPORT_SYMBOL(tcp_create_openreq_child);
  * We don't need to initialize tmp_opt.sack_ok as we don't use the results
  */
 
+//  参数req, 数据fd的 request sock (ipv4传输控制块)
 struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 			   struct request_sock *req,
 			   bool fastopen, bool *req_stolen)
@@ -564,13 +567,17 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	bool own_req;
 
 	tmp_opt.saw_tstamp = 0;
+
+	//处理tcp选项(如有)
 	if (th->doff > (sizeof(struct tcphdr)>>2)) {
 		tcp_parse_options(sock_net(sk), skb, &tmp_opt, 0, NULL);
 
+		//时间戳选项. RFC7323
 		if (tmp_opt.saw_tstamp) {
-			tmp_opt.ts_recent = req->ts_recent;
+			tmp_opt.ts_recent = req->ts_recent; //下一个ack要发送的时间戳
 			if (tmp_opt.rcv_tsecr)
 				tmp_opt.rcv_tsecr -= tcp_rsk(req)->ts_off;
+
 			/* We do not store true stamp, but it is not required,
 			 * it can be estimated (approximately)
 			 * from another data.
@@ -580,6 +587,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 		}
 	}
 
+	//关于syn的处理. 第三次握手包是ack,跳过这里.
 	/* Check for pure retransmitted SYN. */
 	if (TCP_SKB_CB(skb)->seq == tcp_rsk(req)->rcv_isn &&
 	    flg == TCP_FLAG_SYN &&
@@ -681,6 +689,8 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	 * elsewhere and is checked directly against the child socket rather
 	 * than req because user data may have been sent out.
 	 */
+
+	// 异常: 是ACK包,但是序列号不对. 返回父sock的控制块.
 	if ((flg & TCP_FLAG_ACK) && !fastopen &&
 	    (TCP_SKB_CB(skb)->ack_seq !=
 	     tcp_rsk(req)->snt_isn + 1))
@@ -693,9 +703,12 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 
 	/* RFC793: "first check sequence number". */
 
+	//异常逻辑: 无效序列号
 	if (paws_reject || !tcp_in_window(TCP_SKB_CB(skb)->seq, TCP_SKB_CB(skb)->end_seq,
-					  tcp_rsk(req)->rcv_nxt, tcp_rsk(req)->rcv_nxt + req->rsk_rcv_wnd)) {
-		/* Out of window: send ACK and drop. */
+					  tcp_rsk(req)->rcv_nxt, tcp_rsk(req)->rcv_nxt + req->rsk_rcv_wnd)) {   //范围比较: 收到的序列号范围 vs 预期的序列号范围
+
+	    /* Out of window: send ACK and drop. */
+	    // 尝试重发第二次的握手包, 并丢弃本包
 		if (!(flg & TCP_FLAG_RST) &&
 		    !tcp_oow_rate_limited(sock_net(sk), skb,
 					  LINUX_MIB_TCPACKSKIPPEDSYNRECV,
@@ -708,6 +721,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 
 	/* In sequence, PAWS is OK. */
 
+	// 序列号合法, 处理时间戳选项
 	if (tmp_opt.saw_tstamp && !after(TCP_SKB_CB(skb)->seq, tcp_rsk(req)->rcv_nxt))
 		req->ts_recent = tmp_opt.rcv_tsval;
 
@@ -731,6 +745,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	 * XXX (TFO) - if we ever allow "data after SYN", the
 	 * following check needs to be removed.
 	 */
+	// 有ack吗？
 	if (!(flg & TCP_FLAG_ACK))
 		return NULL;
 
@@ -741,6 +756,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 		return sk;
 
 	/* While TCP_DEFER_ACCEPT is active, drop bare ACK. */
+	// TCP_DEFER_ACCEPT选项: 三次握手完成后, 并不accept, 等到客户端数据来到再accept. 减少accept造成的系统调用,优化性能
 	if (req->num_timeout < inet_csk(sk)->icsk_accept_queue.rskq_defer_accept &&
 	    TCP_SKB_CB(skb)->end_seq == tcp_rsk(req)->rcv_isn + 1) {
 		inet_rsk(req)->acked = 1;
@@ -754,14 +770,24 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	 * ESTABLISHED STATE. If it will be dropped after
 	 * socket is created, wait for troubles.
 	 */
+
+	// !!! [服务端第三次握手] 第三次握手的ack有效,
+	// 创建子控制块, 且状态为 TCP_SYN_RECV. own_req = true
+	// 新控制块sk加入ehash, req从ehash中删除
+	// tcp_v4_syn_recv_sock()
 	child = inet_csk(sk)->icsk_af_ops->syn_recv_sock(sk, skb, req, NULL,
 							 req, &own_req);
 	if (!child)
 		goto listen_overflow;
 
 	sock_rps_save_rxhash(child, skb);
+
 	tcp_synack_rtt_meas(child, req);
+
+	//正常情况下own_req=true。 req_stolen = false
 	*req_stolen = !own_req;
+
+    // 从半连接中移除req(实际上只是半连接计数器--)。sk加入全连接(accept)队列，是真的存在一个FIFO。
 	return inet_csk_complete_hashdance(sk, child, req, own_req);
 
 listen_overflow:
@@ -811,9 +837,14 @@ int tcp_child_process(struct sock *parent, struct sock *child,
 	/* record NAPI ID of child */
 	sk_mark_napi_id(child, skb);
 
+	//记录数据segs数
 	tcp_segs_in(tcp_sk(child), skb);
+
 	if (!sock_owned_by_user(child)) {
+	    // sock没有被用户层占用, 继续处理新控制块的状态
 		ret = tcp_rcv_state_process(child, skb);
+
+		// !!! 唤醒该sock的等待进行
 		/* Wakeup parent, send SIGIO */
 		if (state == TCP_SYN_RECV && child->sk_state != state)
 			parent->sk_data_ready(parent);

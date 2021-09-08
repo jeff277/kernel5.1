@@ -63,7 +63,7 @@ struct request_sock {
 	u32				ts_recent;
 	struct timer_list		rsk_timer;
 	const struct request_sock_ops	*rsk_ops;
-	struct sock			*sk;
+	struct sock			*sk;    //自己的控制块
 	u32				*saved_syn;
 	u32				secid;
 	u32				peer_secid;
@@ -165,11 +165,14 @@ struct request_sock_queue {
 	u8			rskq_defer_accept;
 
 	u32			synflood_warned;
-	atomic_t		qlen;
+
+	atomic_t		qlen;   // 半连接队列长度 （现在已经不存在,半连接队列了,只有一个长度）,半连接实际上不需要队列, 为什么？因为顺序不重要
 	atomic_t		young;
 
+	// accept(全连接)FIFO
 	struct request_sock	*rskq_accept_head;
 	struct request_sock	*rskq_accept_tail;
+
 	struct fastopen_queue	fastopenq;  /* Check max_qlen != 0 to determine
 					     * if TFO is enabled.
 					     */

@@ -1697,7 +1697,7 @@ static const struct net_protocol igmp_protocol = {
  * early_demux can change based on sysctl.
  */
 static struct net_protocol tcp_protocol = {
-	.early_demux	=	tcp_v4_early_demux,
+	.early_demux	=	tcp_v4_early_demux,     //提前分流: 套接字自己缓存路由, 分流FIB查询.
 	.early_demux_handler =  tcp_v4_early_demux,
 	.handler	=	tcp_v4_rcv,
 	.err_handler	=	tcp_v4_err,

@@ -461,11 +461,22 @@ void tcp_init_transfer(struct sock *sk, int bpf_op)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 
+	// mtu探测初始化
 	tcp_mtup_init(sk);
+
+	//inet_sk_rebuild_header()
+	//查路由, 更新到 sk->sk_dst_cache
 	icsk->icsk_af_ops->rebuild_header(sk);
+
+	// cc 相关
 	tcp_init_metrics(sk);
+
 	tcp_call_bpf(sk, bpf_op, 0, NULL);
+
+	// init cc
 	tcp_init_congestion_control(sk);
+
+	// 调整接收发送缓存以及窗口等
 	tcp_init_buffer_space(sk);
 }
 

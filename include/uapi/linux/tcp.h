@@ -161,15 +161,15 @@ enum {
 #define TCPI_OPT_SYN_DATA	32 /* SYN-ACK acked data in SYN sent or rcvd */
 
 enum tcp_ca_state {
-	TCP_CA_Open = 0,
+	TCP_CA_Open = 0,                            /*初始状态，也就是没有检测到任何拥塞*/
 #define TCPF_CA_Open	(1<<TCP_CA_Open)
-	TCP_CA_Disorder = 1,
+	TCP_CA_Disorder = 1,                        /*第一次由于收到SACK或者重复的ack而检测到拥塞*/
 #define TCPF_CA_Disorder (1<<TCP_CA_Disorder)
-	TCP_CA_CWR = 2,
+	TCP_CA_CWR = 2,                             /*由于一些拥塞通知事件而导致拥塞窗口减小*/
 #define TCPF_CA_CWR	(1<<TCP_CA_CWR)
-	TCP_CA_Recovery = 3,
+	TCP_CA_Recovery = 3,                        /*当CWND减小*/
 #define TCPF_CA_Recovery (1<<TCP_CA_Recovery)
-	TCP_CA_Loss = 4
+	TCP_CA_Loss = 4                             /*超时或者SACK被拒绝，此时表示数据包丢失*/
 #define TCPF_CA_Loss	(1<<TCP_CA_Loss)
 };
 

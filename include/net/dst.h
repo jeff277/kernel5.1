@@ -444,9 +444,14 @@ static inline int dst_output(struct net *net, struct sock *sk, struct sk_buff *s
 	return skb_dst(skb)->output(net, sk, skb);
 }
 
-/* Input packet from network to transport.  */
+/*
+ * Input packet from network to transport.
+ * 从三层到四层
+ * */
 static inline int dst_input(struct sk_buff *skb)
 {
+	// rt_dst_alloc(),
+	// if (flags & RTCF_LOCAL) rt->dst.input = ip_local_deliver;
 	return skb_dst(skb)->input(skb);
 }
 

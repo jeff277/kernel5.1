@@ -181,7 +181,7 @@ struct sock_common {
 	unsigned char		skc_net_refcnt:1;
 	int			skc_bound_dev_if;
 	union {
-		struct hlist_node	skc_bind_node;
+		struct hlist_node	skc_bind_node;  // 串bhash用?
 		struct hlist_node	skc_portaddr_node;
 	};
 	struct proto		*skc_prot;
@@ -212,7 +212,7 @@ struct sock_common {
 	int			skc_dontcopy_begin[0];
 	/* public: */
 	union {
-		struct hlist_node	skc_node;
+		struct hlist_node	skc_node;       // 串lhash, ehash用.
 		struct hlist_nulls_node skc_nulls_node;
 	};
 	unsigned short		skc_tx_queue_mapping;
@@ -331,7 +331,7 @@ struct sock {
 	 */
 	struct sock_common	__sk_common;
 #define sk_node			__sk_common.skc_node
-#define sk_nulls_node		__sk_common.skc_nulls_node
+#define sk_nulls_node		__sk_common.skc_nulls_node  //ehash node
 #define sk_refcnt		__sk_common.skc_refcnt
 #define sk_tx_queue_mapping	__sk_common.skc_tx_queue_mapping
 #ifdef CONFIG_XPS
@@ -468,7 +468,7 @@ struct sock {
 	rwlock_t		sk_callback_lock;
 	int			sk_err,
 				sk_err_soft;
-	u32			sk_ack_backlog;
+	u32			sk_ack_backlog;     // 全连接队列的长度计数器
 	u32			sk_max_ack_backlog;
 	kuid_t			sk_uid;
 	struct pid		*sk_peer_pid;

@@ -1538,9 +1538,11 @@ unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu)
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	int mss_now;
 
+	//更新控制块中的mtu_high, 不大于新的dst中的pmtu
 	if (icsk->icsk_mtup.search_high > pmtu)
 		icsk->icsk_mtup.search_high = pmtu;
 
+	//新MTU计算, 琪皇已经讲过了. 略
 	mss_now = tcp_mtu_to_mss(sk, pmtu);
 	mss_now = tcp_bound_to_half_wnd(tp, mss_now);
 

@@ -126,20 +126,20 @@ struct inet_hashinfo {
 	 *          TCP_ESTABLISHED <= sk->sk_state < TCP_CLOSE
 	 *
 	 */
-	struct inet_ehash_bucket	*ehash;
-	spinlock_t			*ehash_locks;
-	unsigned int			ehash_mask;
-	unsigned int			ehash_locks_mask;
+	struct inet_ehash_bucket	*ehash; //全局hash表. 四元组俱全的hash.
+	spinlock_t					*ehash_locks;
+	unsigned int				ehash_mask;
+	unsigned int				ehash_locks_mask;
 
 	/* Ok, let's try this, I give up, we do need a local binding
 	 * TCP hash as well as the others for fast bind/connect.
 	 */
-	struct kmem_cache		*bind_bucket_cachep;
-	struct inet_bind_hashbucket	*bhash;
-	unsigned int			bhash_size;
+	struct kmem_cache			*bind_bucket_cachep;
+	struct inet_bind_hashbucket	*bhash; //全局hash表. 负责端口分配.
+	unsigned int				bhash_size;
 
 	/* The 2nd listener table hashed by local port and address */
-	unsigned int			lhash2_mask;
+	unsigned int					lhash2_mask;
 	struct inet_listen_hashbucket	*lhash2;
 
 	/* All the above members are written once at bootup and
@@ -157,6 +157,7 @@ struct inet_hashinfo {
 	struct inet_listen_hashbucket	listening_hash[INET_LHTABLE_SIZE]
 					____cacheline_aligned_in_smp;
 };
+
 
 #define inet_lhash2_for_each_icsk_rcu(__icsk, list) \
 	hlist_for_each_entry_rcu(__icsk, list, icsk_listen_portaddr_node)
@@ -346,6 +347,7 @@ static inline struct sock *__inet_lookup(struct net *net,
 	*refcounted = true;
 	if (sk)
 		return sk;
+
 	*refcounted = false;
 	return __inet_lookup_listener(net, hashinfo, skb, doff, saddr,
 				      sport, daddr, hnum, dif, sdif);

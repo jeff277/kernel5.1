@@ -666,8 +666,10 @@ static bool reqsk_queue_unlink(struct request_sock_queue *queue,
 		found = __sk_nulls_del_node_init_rcu(req_to_sk(req));
 		spin_unlock(lock);
 	}
+
 	if (timer_pending(&req->rsk_timer) && del_timer_sync(&req->rsk_timer))
 		reqsk_put(req);
+
 	return found;
 }
 
@@ -764,6 +766,7 @@ static void reqsk_queue_hash_req(struct request_sock *req,
 	mod_timer(&req->rsk_timer, jiffies + timeout);
 
 	inet_ehash_insert(req_to_sk(req), NULL);
+
 	/* before letting lookups find us, make sure all req fields
 	 * are committed to memory and refcnt initialized.
 	 */
@@ -774,7 +777,17 @@ static void reqsk_queue_hash_req(struct request_sock *req,
 void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 				   unsigned long timeout)
 {
+    /*
+     * 老流程：1.tcp_request_sock挂listen socket下
+     *       2.收到ACK之后从listening_hash找到listen_socket
+     *       3.在listen_socket中找刚才挂入的tcp_request_sock。
+     *
+     * 新流程：直接把子socket(tcp_request_sock)挂在ehash下,收到ACK后可以直接找到子socket了
+     * commit: 079096f103faca2dd87342cca6f23d4b34da8871 2015.10
+     * **/
 	reqsk_queue_hash_req(req, timeout);
+
+	// 父sock accept queue长度加1
 	inet_csk_reqsk_queue_added(sk);
 }
 EXPORT_SYMBOL_GPL(inet_csk_reqsk_queue_hash_add);
@@ -791,11 +804,14 @@ struct sock *inet_csk_clone_lock(const struct sock *sk,
 				 const struct request_sock *req,
 				 const gfp_t priority)
 {
+    //分配一个控制块tcp_sock, 并将其子结构sock返回
 	struct sock *newsk = sk_clone_lock(sk, priority);
 
 	if (newsk) {
+	    // 上面实际分配的是tcp_sock, 所以可以反向取其父类.
 		struct inet_connection_sock *newicsk = inet_csk(newsk);
 
+		// 初始状态为TCP_SYN_RECV, 处理完后 TCP_ESTABLISHED
 		inet_sk_set_state(newsk, TCP_SYN_RECV);
 		newicsk->icsk_bind_hash = NULL;
 
@@ -817,6 +833,7 @@ struct sock *inet_csk_clone_lock(const struct sock *sk,
 		newicsk->icsk_probes_out  = 0;
 
 		/* Deinitialize accept_queue to trap illegal accesses. */
+		// 初始化全连接队列
 		memset(&newicsk->icsk_accept_queue, 0, sizeof(newicsk->icsk_accept_queue));
 
 		security_inet_csk_clone(newsk, req);
@@ -942,11 +959,15 @@ struct sock *inet_csk_reqsk_queue_add(struct sock *sk,
 	} else {
 		req->sk = child;
 		req->dl_next = NULL;
+
+		// 加入到accept队列
 		if (queue->rskq_accept_head == NULL)
 			queue->rskq_accept_head = req;
 		else
 			queue->rskq_accept_tail->dl_next = req;
 		queue->rskq_accept_tail = req;
+
+		// accept队列计数器++
 		sk_acceptq_added(sk);
 	}
 	spin_unlock(&queue->rskq_lock);
@@ -958,8 +979,12 @@ struct sock *inet_csk_complete_hashdance(struct sock *sk, struct sock *child,
 					 struct request_sock *req, bool own_req)
 {
 	if (own_req) {
+	    //将req从ehash中删除. (前面已经删除过了)
 		inet_csk_reqsk_queue_drop(sk, req);
+
+		// 从半连接队列中移除req (实际上只是修改半连接个数计数器)
 		reqsk_queue_removed(&inet_csk(sk)->icsk_accept_queue, req);
+
 		if (inet_csk_reqsk_queue_add(sk, req, child))
 			return child;
 	}

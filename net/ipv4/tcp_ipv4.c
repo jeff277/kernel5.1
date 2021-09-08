@@ -1417,6 +1417,7 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 #endif
 	struct ip_options_rcu *inet_opt;
 
+	//accept队列满(客户端处理不过来)
 	if (sk_acceptq_is_full(sk))
 		goto exit_overflow;
 
@@ -1453,8 +1454,10 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 	}
 	sk_setup_caps(newsk, dst);
 
+	// 设置拥塞算法，进入TCP_CA_OPEN状态
 	tcp_ca_openreq_child(newsk, dst);
 
+	// 根据pmtu，rwnd来计算mss放到tp->mss_cache
 	tcp_sync_mss(newsk, dst_mtu(dst));
 	newtp->advmss = tcp_mss_clamp(tcp_sk(sk), dst_metric_advmss(dst));
 
@@ -1479,6 +1482,8 @@ struct sock *tcp_v4_syn_recv_sock(const struct sock *sk, struct sk_buff *skb,
 
 	if (__inet_inherit_port(sk, newsk) < 0)
 		goto put_and_exit;
+
+	//把newsk(子控制块)加入ehash, 并把第一次握手的request_sock从ehash中删除
 	*own_req = inet_ehash_nolisten(newsk, req_to_sk(req_unhash));
 	if (likely(*own_req)) {
 		tcp_move_syn(newtp, req);
@@ -1818,7 +1823,10 @@ int tcp_v4_rcv(struct sk_buff *skb)
 
 	th = (const struct tcphdr *)skb->data;
 	iph = ip_hdr(skb);
+
 lookup:
+    // [服务端第三次握手] 从ehash中找到 tcp_request_sock. 其状态: TCP_NEW_SYN_RECV
+    // git show 079096f103faca2dd87342cca6f23d4b34da8871
 	sk = __inet_lookup_skb(&tcp_hashinfo, skb, __tcp_hdrlen(th), th->source,
 			       th->dest, sdif, &refcounted);
 	if (!sk)
@@ -1828,37 +1836,51 @@ process:
 	if (sk->sk_state == TCP_TIME_WAIT)
 		goto do_time_wait;
 
+	// [服务端第三次握手] 被动sock. 收到syn包后, 已经被添加到ehash, 且状态是 TCP_NEW_SYN_RECV
 	if (sk->sk_state == TCP_NEW_SYN_RECV) {
-		struct request_sock *req = inet_reqsk(sk);
+		struct request_sock *req = inet_reqsk(sk);  // req, 数据fd的 request sock (ipv4传输控制块)
 		bool req_stolen = false;
 		struct sock *nsk;
 
+		//!!! sk的值变回 父sock(listen sock). 目的是获取控制块
 		sk = req->rsk_listener;
+
+		// tcp md5选项, 安全相关, rfc2385. md5sum{伪首部,首部,载荷,秘钥}
 		if (unlikely(tcp_v4_inbound_md5_hash(sk, skb))) {
 			sk_drops_add(sk, skb);
 			reqsk_put(req);
 			goto discard_it;
 		}
+
+		// 校验和
 		if (tcp_checksum_complete(skb)) {
 			reqsk_put(req);
 			goto csum_error;
 		}
+
+		// 异常: 父sock不是listen状态.
 		if (unlikely(sk->sk_state != TCP_LISTEN)) {
 			inet_csk_reqsk_queue_drop_and_put(sk, req);
 			goto lookup;
 		}
-		/* We own a reference on the listener, increase it again
+
+		/*
+		 * We own a reference on the listener, increase it again
 		 * as we might lose it too soon.
 		 */
 		sock_hold(sk);
 		refcounted = true;
+
+		// 处理第三次握手, 返回新的控制块
 		nsk = NULL;
 		if (!tcp_filter(sk, skb)) {
 			th = (const struct tcphdr *)skb->data;
 			iph = ip_hdr(skb);
+			// 控制信息填充到skb的cb[], 供本层使用.
 			tcp_v4_fill_cb(skb, iph, th);
 			nsk = tcp_check_req(sk, skb, req, false, &req_stolen);
 		}
+
 		if (!nsk) {
 			reqsk_put(req);
 			if (req_stolen) {
@@ -1876,14 +1898,16 @@ process:
 		if (nsk == sk) {
 			reqsk_put(req);
 			tcp_v4_restore_cb(skb);
-		} else if (tcp_child_process(sk, nsk, skb)) {
+		} else if (tcp_child_process(sk, nsk, skb)) {   // 初始化新控制块 nsk
 			tcp_v4_send_reset(nsk, skb);
 			goto discard_and_relse;
 		} else {
 			sock_put(sk);
 			return 0;
 		}
-	}
+	}   // end: sk->sk_state == TCP_NEW_SYN_RECV
+
+
 	if (unlikely(iph->ttl < inet_sk(sk)->min_ttl)) {
 		__NET_INC_STATS(net, LINUX_MIB_TCPMINTTLDROP);
 		goto discard_and_relse;
@@ -2557,7 +2581,7 @@ struct proto tcp_prot = {
 	.sendpage		= tcp_sendpage,
 	.backlog_rcv		= tcp_v4_do_rcv,
 	.release_cb		= tcp_release_cb,
-	.hash			= inet_hash,
+	.hash			= inet_hash,    /*加item到=tcphash*/
 	.unhash			= inet_unhash,
 	.get_port		= inet_csk_get_port,
 	.enter_memory_pressure	= tcp_enter_memory_pressure,
@@ -2571,11 +2595,11 @@ struct proto tcp_prot = {
 	.sysctl_wmem_offset	= offsetof(struct net, ipv4.sysctl_tcp_wmem),
 	.sysctl_rmem_offset	= offsetof(struct net, ipv4.sysctl_tcp_rmem),
 	.max_header		= MAX_TCP_HEADER,
-	.obj_size		= sizeof(struct tcp_sock),
+	.obj_size		= sizeof(struct tcp_sock),  /*slab对象是最外面的套娃 tcp_sock*/
 	.slab_flags		= SLAB_TYPESAFE_BY_RCU,
 	.twsk_prot		= &tcp_timewait_sock_ops,
 	.rsk_prot		= &tcp_request_sock_ops,
-	.h.hashinfo		= &tcp_hashinfo,
+	.h.hashinfo		= &tcp_hashinfo,    /* 全局的 tcphash*/
 	.no_autobind		= true,
 #ifdef CONFIG_COMPAT
 	.compat_setsockopt	= compat_tcp_setsockopt,

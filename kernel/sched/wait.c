@@ -89,6 +89,7 @@ static int __wake_up_common(struct wait_queue_head *wq_head, unsigned int mode,
 		if (flags & WQ_FLAG_BOOKMARK)
 			continue;
 
+		// 从这里, 回调 ep_poll_callback
 		ret = curr->func(curr, mode, wake_flags, key);
 		if (ret < 0)
 			break;
@@ -123,6 +124,7 @@ static void __wake_up_common_lock(struct wait_queue_head *wq_head, unsigned int 
 
 	while (bookmark.flags & WQ_FLAG_BOOKMARK) {
 		spin_lock_irqsave(&wq_head->lock, flags);
+		// epoll 从这里唤醒
 		nr_exclusive = __wake_up_common(wq_head, mode, nr_exclusive,
 						wake_flags, key, &bookmark);
 		spin_unlock_irqrestore(&wq_head->lock, flags);
