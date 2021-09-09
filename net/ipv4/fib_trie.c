@@ -1312,7 +1312,12 @@ static inline t_key prefix_mismatch(t_key key, struct key_vector *n)
 	return (key ^ prefix) & (prefix | -prefix);
 }
 
+
 /* should be called with rcu_read_lock */
+/* [参数] 系统调用bind()触发到这里时
+ * tb:  查的是哪一张路由表,查的是Local路由表(目的地址是本地)
+ * flp: bind的ip地址
+ * **/
 int fib_table_lookup(struct fib_table *tb, const struct flowi4 *flp,
 		     struct fib_result *res, int fib_flags)
 {

@@ -215,13 +215,11 @@ struct rtmsg {
 
 enum {
 	RTN_UNSPEC,
-	RTN_UNICAST,		/* Gateway or direct route	*/
-	RTN_LOCAL,		/* Accept locally		*/
-	RTN_BROADCAST,		/* Accept locally as broadcast,
-				   send as broadcast */
-	RTN_ANYCAST,		/* Accept locally as broadcast,
-				   but send as unicast */
-	RTN_MULTICAST,		/* Multicast route		*/
+	RTN_UNICAST,		/* Gateway or direct route	*/							// 单播路由类型
+	RTN_LOCAL,		/* Accept locally		*/									// 是回环的路由(本地转发)类型
+	RTN_BROADCAST,		/* Accept locally as broadcast, send as broadcast */	// 广播的路由类型
+	RTN_ANYCAST,		/* Accept locally as broadcast, but send as unicast */	// 任播路由类型
+	RTN_MULTICAST,		/* Multicast route		*/								// 多播或者组播的路由类型
 	RTN_BLACKHOLE,		/* Drop				*/
 	RTN_UNREACHABLE,	/* Destination is unreachable   */
 	RTN_PROHIBIT,		/* Administratively prohibited	*/
@@ -303,8 +301,8 @@ enum rt_class_t {
 /* User defined values */
 	RT_TABLE_COMPAT=252,
 	RT_TABLE_DEFAULT=253,
-	RT_TABLE_MAIN=254,
-	RT_TABLE_LOCAL=255,
+	RT_TABLE_MAIN=254,			// 到其它主机的路由表项
+	RT_TABLE_LOCAL=255,			// 目的地址是本机的路由表项。这些目的地址是各个网卡配置的IP地址
 	RT_TABLE_MAX=0xFFFFFFFF
 };
 
