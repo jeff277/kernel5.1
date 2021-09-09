@@ -1786,7 +1786,7 @@ static void tcp_v4_fill_cb(struct sk_buff *skb, const struct iphdr *iph,
 /*
  *	From tcp_input.c
  */
-
+// tcp协议栈的入口函数
 int tcp_v4_rcv(struct sk_buff *skb)
 {
 	struct net *net = dev_net(skb->dev);
