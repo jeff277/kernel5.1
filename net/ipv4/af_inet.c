@@ -512,7 +512,7 @@ int __inet_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
 		lock_sock(sk);
 
 	/* Check these errors (active socket, double bind). */
-	// 检查重复绑定， 有发过数据 或者调用过bind, inet_num就会src_port值
+	// 检查重复绑定: 有发过数据 或者调用过bind, inet_num就会src_port值! 就会从这里返回错误到应用层
 	err = -EINVAL;
 	if (sk->sk_state != TCP_CLOSE || inet->inet_num)
 		goto out_release_sock;
