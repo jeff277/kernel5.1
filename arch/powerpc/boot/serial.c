@@ -18,7 +18,7 @@
 #include "stdio.h"
 #include "io.h"
 #include "ops.h"
-#include "autoconf.h"
+#include "include/generated/autoconf.h"
 
 static int serial_open(void)
 {

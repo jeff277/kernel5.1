@@ -16,7 +16,7 @@
 
 #include <linux/version.h>
 #include <linux/sched/signal.h>
-#include <autoconf.h>
+#include "include/generated/autoconf.h"
 #include <basic_types.h>
 #include <osdep_service.h>
 #include <rtw_byteorder.h>
